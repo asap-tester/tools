@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Quick Search — Micro App Browser</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0a0f;
+  --surface:rgba(255,255,255,0.06);
+  --surface-hover:rgba(255,255,255,0.09);
+  --border:rgba(255,255,255,0.12);
+  --border-strong:rgba(255,255,255,0.2);
+  --text:rgba(255,255,255,0.95);
+  --text-sec:rgba(255,255,255,0.55);
+  --text-ter:rgba(255,255,255,0.3);
+  --accent:#ffffff;
+  --pill:rgba(255,255,255,0.15);
+  --blur:blur(20px);
+  --blur-sm:blur(12px);
+  --r:16px;
+  --r-sm:10px;
+  --r-xs:6px;
+  --tab-h:72px;
+  --header-h:60px;
+  --anim:200ms ease;
+  --font:system-ui,-apple-system,sans-serif;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.5}
+body{display:flex;flex-direction:column;position:relative}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 80% 50% at 20% -10%,rgba(120,80,255,0.08) 0%,transparent 60%),
+             radial-gradient(ellipse 60% 40% at 80% 110%,rgba(0,180,255,0.06) 0%,transparent 55%);
+}
+
+/* ── LAYOUT ─────────────────────────────────────────────── */
+#app{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.screen{display:none;flex-direction:column;flex:1;overflow:hidden}
+.screen.active{display:flex}
+.scroll-area{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:16px 16px calc(var(--tab-h) + 16px)}
+.scroll-area::-webkit-scrollbar{display:none}
+
+/* ── HEADER ──────────────────────────────────────────────── */
+.header{height:var(--header-h);display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;position:relative}
+.header-title{font-size:18px;font-weight:700;letter-spacing:-0.3px;flex:1}
+.header-sub{font-size:12px;color:var(--text-sec);margin-top:1px}
+
+/* ── GLASS CARD ──────────────────────────────────────────── */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  -webkit-backdrop-filter:var(--blur);
+  backdrop-filter:var(--blur);
+  transition:transform var(--anim),filter var(--anim),background var(--anim);
+  position:relative;overflow:hidden;
+}
+.card:active{transform:scale(0.98);filter:brightness(1.1)}
+
+/* ── WORKSPACE ───────────────────────────────────────────── */
+#ws-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:60px 20px;color:var(--text-sec);text-align:center;
+}
+#ws-empty .empty-icon{font-size:40px;opacity:.5}
+#ws-empty p{font-size:14px;max-width:200px}
+.ws-grid{display:flex;flex-direction:column;gap:10px}
+.ws-card{
+  padding:16px;display:flex;align-items:center;gap:14px;cursor:pointer;
+  min-height:76px;
+}
+.ws-card .card-emoji{font-size:28px;line-height:1;flex-shrink:0;width:40px;text-align:center}
+.ws-card .card-info{flex:1;min-width:0}
+.ws-card .card-name{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-card .card-desc{font-size:12px;color:var(--text-sec);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-card .pin-badge{
+  font-size:11px;color:var(--text-ter);margin-top:3px;display:none;
+}
+.ws-card.pinned .pin-badge{display:block}
+.ws-card .open-btn{
+  flex-shrink:0;background:rgba(255,255,255,0.1);border:1px solid var(--border);
+  color:var(--text);border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;
+  cursor:pointer;min-height:36px;transition:background var(--anim);
+}
+.ws-card .open-btn:active{background:rgba(255,255,255,0.2)}
+
+/* Long press menu */
+.ctx-menu{
+  position:fixed;z-index:999;
+  background:rgba(20,20,28,0.95);
+  border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);
+  -webkit-backdrop-filter:var(--blur);
+  backdrop-filter:var(--blur);
+  overflow:hidden;min-width:160px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5);
+  display:none;
+}
+.ctx-menu.show{display:block}
+.ctx-item{
+  padding:13px 18px;font-size:14px;cursor:pointer;
+  display:flex;align-items:center;gap:10px;
+  transition:background var(--anim);
+}
+.ctx-item:active{background:rgba(255,255,255,0.08)}
+.ctx-item.danger{color:#ff6b6b}
+
+/* ── DISCOVER ────────────────────────────────────────────── */
+.search-wrap{padding:12px 16px 4px;flex-shrink:0}
+.search-box{
+  display:flex;align-items:center;gap:10px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:0 14px;
+  -webkit-backdrop-filter:var(--blur-sm);backdrop-filter:var(--blur-sm);
+  height:44px;
+}
+.search-box input{
+  flex:1;background:none;border:none;outline:none;
+  color:var(--text);font-size:15px;font-family:var(--font);
+}
+.search-box input::placeholder{color:var(--text-ter)}
+.search-icon{color:var(--text-ter);font-size:16px;flex-shrink:0}
+.clear-btn{color:var(--text-ter);font-size:18px;cursor:pointer;display:none;padding:4px;line-height:1}
+.clear-btn.show{display:block}
+
+.category-section{margin-bottom:24px}
+.category-label{
+  font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--text-ter);margin-bottom:10px;padding:0 2px;
+}
+.disc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.disc-card{
+  padding:14px;cursor:pointer;display:flex;flex-direction:column;gap:8px;
+  min-height:120px;
+}
+.disc-card .card-emoji{font-size:26px;line-height:1}
+.disc-card .card-name{font-size:14px;font-weight:700;line-height:1.2}
+.disc-card .card-desc{font-size:11px;color:var(--text-sec);line-height:1.4;flex:1}
+.disc-card .card-footer{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px}
+.tags{display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0}
+.tag{
+  font-size:10px;font-weight:600;letter-spacing:0.3px;
+  background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);
+  border-radius:4px;padding:2px 6px;color:var(--text-sec);white-space:nowrap;
+}
+.add-btn{
+  flex-shrink:0;background:rgba(255,255,255,0.08);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;
+  cursor:pointer;white-space:nowrap;transition:background var(--anim),color var(--anim);
+  min-height:28px;
+}
+.add-btn.added{background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.5)}
+.add-btn:active{background:rgba(255,255,255,0.2)}
+
+/* ── SEARCH SCREEN ───────────────────────────────────────── */
+.search-screen-wrap{padding:16px 16px 8px;flex-shrink:0}
+.search-screen-box{
+  display:flex;align-items:center;gap:10px;
+  background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:var(--r);padding:0 16px;
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  height:52px;
+}
+.search-screen-box input{
+  flex:1;background:none;border:none;outline:none;
+  color:var(--text);font-size:16px;font-family:var(--font);
+}
+.search-screen-box input::placeholder{color:var(--text-ter)}
+.search-screen-box .search-icon{font-size:18px;color:var(--text-ter)}
+.search-screen-box .clear-btn{font-size:20px}
+
+.recent-section{padding:0 16px;margin-bottom:20px}
+.section-label{font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--text-ter);margin-bottom:10px}
+.recent-chips{display:flex;flex-wrap:wrap;gap:8px}
+.recent-chip{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;padding:7px 14px;font-size:13px;cursor:pointer;
+  transition:background var(--anim);min-height:36px;display:flex;align-items:center;gap:6px;
+}
+.recent-chip:active{background:rgba(255,255,255,0.12)}
+.recent-chip span{color:var(--text-ter);font-size:12px}
+.results-area{padding:0 16px;flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--tab-h) + 16px)}
+.results-area::-webkit-scrollbar{display:none}
+.no-results{color:var(--text-sec);font-size:14px;padding:20px 0;text-align:center}
+
+/* ── SEARCH RESULT CARD ──────────────────────────────────── */
+.result-card{
+  display:flex;align-items:center;gap:14px;padding:14px;margin-bottom:10px;cursor:pointer;
+}
+.result-card .card-emoji{font-size:26px;flex-shrink:0;width:38px;text-align:center}
+.result-card .card-info{flex:1;min-width:0}
+.result-card .card-name{font-size:15px;font-weight:600}
+.result-card .card-desc{font-size:12px;color:var(--text-sec);margin-top:2px}
+.result-card .result-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.result-card .add-btn{flex-shrink:0}
+
+/* ── TAB BAR ─────────────────────────────────────────────── */
+.tab-bar{
+  position:fixed;bottom:0;left:0;right:0;z-index:100;
+  height:var(--tab-h);display:flex;align-items:stretch;
+  background:rgba(10,10,15,0.85);
+  border-top:1px solid var(--border);
+  -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
+}
+.tab{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;cursor:pointer;transition:opacity var(--anim);position:relative;
+  padding-bottom:env(safe-area-inset-bottom,0);
+  min-height:48px;
+}
+.tab-icon{font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;color:var(--text-sec);transition:color var(--anim),transform var(--anim)}
+.tab-label{font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text-sec);transition:color var(--anim)}
+.tab.active .tab-label{color:var(--text)}
+.tab.active .tab-icon{color:var(--text);transform:scale(1.08)}
+.tab-pip{
+  position:absolute;bottom:10px;width:20px;height:3px;border-radius:2px;
+  background:var(--accent);opacity:0;transition:opacity var(--anim);
+}
+.tab.active .tab-pip{opacity:1}
+
+/* ── TOAST ───────────────────────────────────────────────── */
+.toast{
+  position:fixed;bottom:calc(var(--tab-h) + 12px);left:50%;transform:translateX(-50%) translateY(20px);
+  background:rgba(30,30,40,0.95);border:1px solid var(--border-strong);
+  border-radius:24px;padding:10px 20px;font-size:13px;font-weight:600;
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  white-space:nowrap;z-index:200;
+  opacity:0;transition:opacity 200ms ease,transform 200ms ease;
+  pointer-events:none;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── OVERLAY ─────────────────────────────────────────────── */
+#overlay{position:fixed;inset:0;z-index:998;display:none}
+#overlay.show{display:block}
+
+/* ── SECTION DIVIDER ─────────────────────────────────────── */
+.divider{height:1px;background:var(--border);margin:4px 0 16px;opacity:.5}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- WORKSPACE TAB -->
+  <div id="screen-ws" class="screen active">
+    <div class="header">
+      <div>
+        <div class="header-title">Workspace</div>
+        <div class="header-sub" id="ws-subtitle">Loading…</div>
+      </div>
+    </div>
+    <div class="scroll-area" id="ws-list"></div>
+  </div>
+
+  <!-- DISCOVER TAB -->
+  <div id="screen-disc" class="screen">
+    <div class="header"><div class="header-title">Discover</div></div>
+    <div class="search-wrap">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="disc-search" placeholder="Search tools…" autocomplete="off" autocorrect="off" spellcheck="false">
+        <span class="clear-btn" id="disc-clear">✕</span>
+      </div>
+    </div>
+    <div class="scroll-area" id="disc-list"></div>
+  </div>
+
+  <!-- SEARCH TAB -->
+  <div id="screen-search" class="screen">
+    <div class="search-screen-wrap">
+      <div class="search-screen-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="main-search" placeholder="Search all tools…" autocomplete="off" autocorrect="off" spellcheck="false">
+        <span class="clear-btn" id="main-clear">✕</span>
+      </div>
+    </div>
+    <div id="recent-wrap" class="recent-section" style="margin-top:16px;display:none">
+      <div class="section-label">Recent</div>
+      <div class="recent-chips" id="recent-chips"></div>
+    </div>
+    <div class="results-area" id="search-results"></div>
+  </div>
+
+  <!-- TAB BAR -->
+  <nav class="tab-bar">
+    <div class="tab active" data-tab="ws" onclick="switchTab('ws')">
+      <span class="tab-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="3" width="8" height="8" rx="2" fill="currentColor" opacity="0.9"/>
+          <rect x="13" y="3" width="8" height="8" rx="2" fill="currentColor" opacity="0.9"/>
+          <rect x="3" y="13" width="8" height="8" rx="2" fill="currentColor" opacity="0.9"/>
+          <rect x="13" y="13" width="8" height="8" rx="2" fill="currentColor" opacity="0.9"/>
+        </svg>
+      </span>
+      <span class="tab-label">Workspace</span>
+      <div class="tab-pip"></div>
+    </div>
+    <div class="tab" data-tab="disc" onclick="switchTab('disc')">
+      <span class="tab-icon" style="font-size:22px;line-height:1">✦</span>
+      <span class="tab-label">Discover</span>
+      <div class="tab-pip"></div>
+    </div>
+    <div class="tab" data-tab="search" onclick="switchTab('search')">
+      <span class="tab-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/>
+          <path d="M15.5 15.5L20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="tab-label">Search</span>
+      <div class="tab-pip"></div>
+    </div>
+  </nav>
+</div>
+
+<!-- Context menu -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" id="ctx-pin" onclick="ctxPin()"><span id="ctx-pin-icon">📌</span><span id="ctx-pin-label">Pin to top</span></div>
+  <div class="ctx-item" id="ctx-open" onclick="ctxOpen()"><span>↗</span> Open tool</div>
+  <div class="ctx-item danger" onclick="ctxRemove()"><span>✕</span> Remove</div>
+</div>
+<div id="overlay" onclick="closeCtx()"></div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ── CATALOG ────────────────────────────────────────────────
+const CATALOG = [
+  {id:'zonemap',name:'ZoneMap',emoji:'🗺️',desc:'Map your time zones, energy blocks, and focus windows across the day.',tags:['planning','time','focus'],category:'Productivity',url:'https://asap-tester.github.io/ZoneMap/'},
+  {id:'pipelineiq',name:'PipelineIQ',emoji:'🔁',desc:'Visualize and manage your task pipeline from intake to done.',tags:['workflow','tasks','planning'],category:'Dashboards',url:'https://asap-tester.github.io/PipelineIQ/'},
+  {id:'cleardesk',name:'ClearDesk',emoji:'🧹',desc:'Zero-clutter daily reset board. Clear tasks, clear mind.',tags:['productivity','daily','focus'],category:'Productivity',url:'https://asap-tester.github.io/ClearDesk/'},
+  {id:'clearcut',name:'ClearCut',emoji:'✂️',desc:'Trim decisions down to what actually matters. Fast and ruthless.',tags:['decisions','focus','planning'],category:'Decision Tools',url:'https://asap-tester.github.io/ClearCut/'},
+  {id:'decisionledger',name:'DecisionLedger',emoji:'📒',desc:'Log, weigh and audit every major decision with a structured record.',tags:['decisions','planning','log'],category:'Decision Tools',url:'https://asap-tester.github.io/DecisionLedger/'},
+  {id:'pomodoro',name:'Pomodoro Timer',emoji:'⏱',desc:'Stay focused with timed work sessions and short breaks.',tags:['timer','focus','productivity'],category:'Timers',url:'placeholder_timer'},
+  {id:'flashcards',name:'Study Flashcards',emoji:'🃏',desc:'Create and flip through revision cards for deep recall.',tags:['study','memory'],category:'Study',url:'placeholder_flashcards'},
+  {id:'budget',name:'Budget Calculator',emoji:'💰',desc:'Plan income, expenses and savings goals.',tags:['finance','calculator'],category:'Calculators',url:'placeholder_budget'},
+  {id:'converter',name:'Unit Converter',emoji:'📐',desc:'Convert length, mass, temperature and more instantly.',tags:['calculator','math'],category:'Calculators',url:'placeholder_converter'},
+  {id:'habits',name:'Habit Tracker',emoji:'✅',desc:'Build streaks and track daily routines.',tags:['productivity','daily'],category:'Dashboards',url:'placeholder_habits'},
+];
+
+const CATEGORIES = ['Productivity','Dashboards','Decision Tools','Study','Timers','Calculators'];
+
+// ── STORAGE ────────────────────────────────────────────────
+const PFX = 'qsmab_';
+function get(k){try{return JSON.parse(localStorage.getItem(PFX+k))||null}catch{return null}}
+function set(k,v){try{localStorage.setItem(PFX+k,JSON.stringify(v))}catch{}}
+
+function getWorkspace(){return get('workspace')||[]}
+function saveWorkspace(ws){set('workspace',ws)}
+function getRecent(){return get('recent')||[]}
+function saveRecent(r){set('recent',r)}
+
+// ── STATE ──────────────────────────────────────────────────
+let ctxTarget = null; // tool id for context menu
+
+// ── TABS ───────────────────────────────────────────────────
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.classList.toggle('active', t.dataset.tab===tab);
+  });
+  document.querySelectorAll('.screen').forEach(s=>{
+    s.classList.toggle('active', s.id==='screen-'+tab);
+  });
+  if(tab==='ws') renderWorkspace();
+  if(tab==='disc') renderDiscover();
+  if(tab==='search'){
+    renderRecentChips();
+    setTimeout(()=>document.getElementById('main-search').focus(),150);
+  }
+}
+
+// ── WORKSPACE ──────────────────────────────────────────────
+function renderWorkspace(){
+  const ws = getWorkspace();
+  const el = document.getElementById('ws-list');
+  const sub = document.getElementById('ws-subtitle');
+  sub.textContent = ws.length ? ws.length+' tool'+(ws.length!==1?'s':'')+' saved' : 'Your saved tools';
+  if(!ws.length){
+    el.innerHTML=`<div id="ws-empty"><div class="empty-icon">🗂️</div><p>No tools yet. Discover some below.</p></div>`;
+    return;
+  }
+  const sorted = [...ws].sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0));
+  el.innerHTML='';
+  const grid = document.createElement('div');
+  grid.className='ws-grid';
+  sorted.forEach(tool=>{
+    const orig = CATALOG.find(c=>c.id===tool.id)||tool;
+    const card = document.createElement('div');
+    card.className='card ws-card'+(tool.pinned?' pinned':'');
+    card.dataset.id=tool.id;
+    card.innerHTML=`
+      <div class="card-emoji">${orig.emoji}</div>
+      <div class="card-info">
+        <div class="card-name">${orig.name}</div>
+        <div class="card-desc">${orig.desc}</div>
+        <div class="pin-badge">📌 Pinned</div>
+      </div>
+      <button class="open-btn" onclick="openTool('${orig.url}','${orig.id}')">Open</button>
+    `;
+    card.addEventListener('contextmenu',e=>{e.preventDefault();showCtx(e,tool.id)});
+    let pressTimer;
+    card.addEventListener('touchstart',e=>{pressTimer=setTimeout(()=>showCtx(e.touches[0],tool.id),500)},{passive:true});
+    card.addEventListener('touchend',()=>clearTimeout(pressTimer));
+    card.addEventListener('touchmove',()=>clearTimeout(pressTimer));
+    grid.appendChild(card);
+  });
+  el.appendChild(grid);
+}
+
+function openTool(url, id){
+  if(!url) return showToast('No URL set for this tool');
+  addToWorkspace(id);
+  location.href=url;
+}
+
+function addToWorkspace(id){
+  const ws = getWorkspace();
+  if(!ws.find(t=>t.id===id)){
+    const orig = CATALOG.find(c=>c.id===id);
+    if(!orig) return;
+    ws.unshift({id,pinned:false});
+    saveWorkspace(ws);
+  }
+}
+
+// ── CONTEXT MENU ───────────────────────────────────────────
+function showCtx(pos, id){
+  ctxTarget = id;
+  const ws = getWorkspace();
+  const tool = ws.find(t=>t.id===id);
+  const menu = document.getElementById('ctx-menu');
+  const icon = document.getElementById('ctx-pin-icon');
+  const label = document.getElementById('ctx-pin-label');
+  if(tool&&tool.pinned){icon.textContent='📍';label.textContent='Unpin'}
+  else{icon.textContent='📌';label.textContent='Pin to top'}
+  const x = Math.min(pos.clientX, window.innerWidth-180);
+  const y = Math.min(pos.clientY, window.innerHeight-140);
+  menu.style.left=x+'px';menu.style.top=y+'px';
+  menu.classList.add('show');
+  document.getElementById('overlay').classList.add('show');
+}
+function closeCtx(){
+  document.getElementById('ctx-menu').classList.remove('show');
+  document.getElementById('overlay').classList.remove('show');
+  ctxTarget=null;
+}
+function ctxPin(){
+  if(!ctxTarget) return closeCtx();
+  const ws = getWorkspace();
+  const t = ws.find(x=>x.id===ctxTarget);
+  if(t) t.pinned=!t.pinned;
+  saveWorkspace(ws);
+  renderWorkspace();
+  showToast(t&&t.pinned?'Pinned':'Unpinned');
+  closeCtx();
+}
+function ctxOpen(){
+  if(!ctxTarget) return closeCtx();
+  const orig = CATALOG.find(c=>c.id===ctxTarget);
+  closeCtx();
+  if(orig) openTool(orig.url, orig.id);
+}
+function ctxRemove(){
+  if(!ctxTarget) return closeCtx();
+  const ws = getWorkspace().filter(t=>t.id!==ctxTarget);
+  saveWorkspace(ws);
+  renderWorkspace();
+  showToast('Removed');
+  closeCtx();
+}
+
+// ── DISCOVER ───────────────────────────────────────────────
+function renderDiscover(query){
+  const el = document.getElementById('disc-list');
+  el.innerHTML='';
+  const ws = getWorkspace();
+  const q = (query||'').toLowerCase().trim();
+  let tools = q
+    ? CATALOG.filter(t=>t.name.toLowerCase().includes(q)||t.desc.toLowerCase().includes(q)||t.tags.some(tg=>tg.includes(q)))
+    : CATALOG;
+
+  if(!tools.length){
+    el.innerHTML='<div class="no-results">No tools match "'+escHtml(q)+'"</div>';
+    return;
+  }
+  if(q){
+    // flat results when searching
+    const grid = document.createElement('div');
+    grid.className='disc-grid';
+    tools.forEach(t=>grid.appendChild(makeDiscCard(t,ws)));
+    el.appendChild(grid);
+    return;
+  }
+  CATEGORIES.forEach(cat=>{
+    const cats = tools.filter(t=>t.category===cat);
+    if(!cats.length) return;
+    const sec = document.createElement('div');
+    sec.className='category-section';
+    sec.innerHTML='<div class="category-label">'+cat+'</div>';
+    const grid = document.createElement('div');
+    grid.className='disc-grid';
+    cats.forEach(t=>grid.appendChild(makeDiscCard(t,ws)));
+    sec.appendChild(grid);
+    el.appendChild(sec);
+  });
+}
+
+function makeDiscCard(t, ws){
+  const inWs = ws.some(w=>w.id===t.id);
+  const card = document.createElement('div');
+  card.className='card disc-card';
+  card.innerHTML=`
+    <div class="card-emoji">${t.emoji}</div>
+    <div class="card-name">${escHtml(t.name)}</div>
+    <div class="card-desc">${escHtml(t.desc)}</div>
+    <div class="card-footer">
+      <div class="tags">${t.tags.map(tg=>'<span class="tag">'+escHtml(tg)+'</span>').join('')}</div>
+      <button class="add-btn${inWs?' added':''}" data-id="${t.id}" onclick="toggleWs('${t.id}',this)">
+        ${inWs?'Added':'+ Add'}
+      </button>
+    </div>
+  `;
+  card.addEventListener('click', e=>{if(!e.target.classList.contains('add-btn')) openTool(t.url,t.id)});
+  return card;
+}
+
+function toggleWs(id, btn){
+  const ws = getWorkspace();
+  const exists = ws.some(t=>t.id===id);
+  if(exists){
+    saveWorkspace(ws.filter(t=>t.id!==id));
+    btn.textContent='+ Add'; btn.classList.remove('added');
+    showToast('Removed from Workspace');
+  } else {
+    addToWorkspace(id);
+    btn.textContent='Added'; btn.classList.add('added');
+    showToast('Added to Workspace ✓');
+  }
+}
+
+// Discover search
+const discSearch = document.getElementById('disc-search');
+const discClear = document.getElementById('disc-clear');
+discSearch.addEventListener('input',()=>{
+  const q=discSearch.value;
+  discClear.classList.toggle('show',!!q);
+  renderDiscover(q);
+});
+discClear.addEventListener('click',()=>{
+  discSearch.value=''; discClear.classList.remove('show'); renderDiscover('');
+});
+
+// ── SEARCH SCREEN ──────────────────────────────────────────
+const mainSearch = document.getElementById('main-search');
+const mainClear = document.getElementById('main-clear');
+
+mainSearch.addEventListener('input',()=>{
+  const q=mainSearch.value;
+  mainClear.classList.toggle('show',!!q);
+  if(q){
+    document.getElementById('recent-wrap').style.display='none';
+    doSearch(q);
+  } else {
+    renderRecentChips();
+    document.getElementById('search-results').innerHTML='';
+  }
+});
+mainClear.addEventListener('click',()=>{
+  mainSearch.value=''; mainClear.classList.remove('show');
+  document.getElementById('search-results').innerHTML='';
+  renderRecentChips();
+});
+
+function doSearch(q){
+  const el = document.getElementById('search-results');
+  const ws = getWorkspace();
+  const ql = q.toLowerCase().trim();
+  const results = CATALOG.filter(t=>
+    t.name.toLowerCase().includes(ql)||
+    t.desc.toLowerCase().includes(ql)||
+    t.tags.some(tg=>tg.includes(ql))
+  );
+  saveRecentSearch(q);
+  el.innerHTML='';
+  if(!results.length){el.innerHTML='<div class="no-results">No tools found for "'+escHtml(q)+'"</div>';return}
+  results.forEach(t=>{
+    const inWs=ws.some(w=>w.id===t.id);
+    const card=document.createElement('div');
+    card.className='card result-card';
+    card.innerHTML=`
+      <div class="card-emoji">${t.emoji}</div>
+      <div class="card-info">
+        <div class="card-name">${escHtml(t.name)}</div>
+        <div class="card-desc">${escHtml(t.desc)}</div>
+        <div class="result-tags">${t.tags.map(tg=>'<span class="tag">'+escHtml(tg)+'</span>').join('')}</div>
+      </div>
+      <button class="add-btn${inWs?' added':''}" data-id="${t.id}" onclick="toggleWs('${t.id}',this)">
+        ${inWs?'Added':'+ Add'}
+      </button>
+    `;
+    card.addEventListener('click',e=>{if(!e.target.classList.contains('add-btn'))openTool(t.url,t.id)});
+    el.appendChild(card);
+  });
+}
+
+function saveRecentSearch(q){
+  let r=getRecent();
+  r=r.filter(x=>x.toLowerCase()!==q.toLowerCase());
+  r.unshift(q);
+  if(r.length>10) r=r.slice(0,10);
+  saveRecent(r);
+}
+
+function renderRecentChips(){
+  const r=getRecent();
+  const wrap=document.getElementById('recent-wrap');
+  const chips=document.getElementById('recent-chips');
+  if(!r.length){wrap.style.display='none';return}
+  wrap.style.display='block';
+  chips.innerHTML='';
+  r.forEach(q=>{
+    const chip=document.createElement('div');
+    chip.className='recent-chip';
+    chip.innerHTML='<span>🕐</span>'+escHtml(q);
+    chip.addEventListener('click',()=>{
+      mainSearch.value=q;
+      mainClear.classList.add('show');
+      wrap.style.display='none';
+      doSearch(q);
+    });
+    chips.appendChild(chip);
+  });
+}
+
+// ── TOAST ──────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2000);
+}
+
+// ── UTILS ──────────────────────────────────────────────────
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── INIT ───────────────────────────────────────────────────
+renderWorkspace();
+renderDiscover();
+
+// expose to onclick attrs
+window.switchTab=switchTab;
+window.openTool=openTool;
+window.toggleWs=toggleWs;
+window.ctxPin=ctxPin;
+window.ctxOpen=ctxOpen;
+window.ctxRemove=ctxRemove;
+window.closeCtx=closeCtx;
+
+})();
+</script>
+</body>
+</html>
