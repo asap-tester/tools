@@ -122,5 +122,5 @@ Or links can be handled inside `shouldOverrideUrlLoading` to open in-app or in t
 
 ## Built by
 
-XMS — a student, Quick Search user.
+A student, Quick Search user.
 Built with AI assistance as a proof-of-concept around Issue #194.
